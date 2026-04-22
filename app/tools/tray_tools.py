@@ -65,42 +65,19 @@ def get_product_details(product_id: int) -> str:
     return "\n".join(lines)
 
 
-@tool
-def list_categories() -> str:
-    """Lista as categorias de produtos disponíveis na loja com seus IDs.
-    SEMPRE use esta tool antes de search_products_by_category para obter o ID correto da categoria.
-    Use quando o cliente quiser navegar por categoria ou perguntar o que a loja vende."""
+def _get_categories() -> list[dict]:
     data = client.get("/categories", {"limit": 100, "active": 1, "has_product": 1})
-    cats = data.get("Categories", [])
-    if not cats:
-        return "Nenhuma categoria encontrada."
-    lines = ["Categorias disponíveis (use o ID numérico para buscar produtos):\n"]
-    for item in cats:
+    result = []
+    for item in data.get("Categories", []):
         c = item.get("Category", item)
-        # Filtra nomes que parecem IDs ou lixo de dados de teste
         name = c.get("name", "").strip()
         if name and not name.isdigit() and len(name) > 2:
-            lines.append(f"• ID={c['id']} | {name}")
-    return "\n".join(lines)
+            result.append({"id": c["id"], "name": name})
+    return result
 
 
-@tool
-def search_products_by_category(category_id: int, limit: int = 10) -> str:
-    """Busca produtos disponíveis de uma categoria pelo ID numérico da categoria.
-    IMPORTANTE: use o ID numérico retornado por list_categories, nunca o nome.
-    Use quando o cliente quiser ver produtos de uma categoria em particular."""
-    data = client.get("/products", {
-        "category_id": category_id,
-        "available": 1,
-        "limit": limit,
-        "order": "price",
-    })
-    products = data.get("Products", [])
-    total = data.get("paging", {}).get("total", 0)
-    if not products:
-        return f"Nenhum produto disponível nessa categoria (ID {category_id}). Tente outra categoria."
-
-    lines = [f"{total} produto(s) disponíveis nessa categoria:\n"]
+def _format_products(products: list, total: int) -> str:
+    lines = [f"{total} produto(s) encontrado(s):\n"]
     for item in products:
         p = item["Product"]
         promo = p.get("promotional_price", "0")
@@ -108,6 +85,48 @@ def search_products_by_category(category_id: int, limit: int = 10) -> str:
         stock = p.get("stock", 0)
         lines.append(f"• [{p['id']}] {p['name']} — R$ {price} | Estoque: {stock}")
     return "\n".join(lines)
+
+
+@tool
+def list_categories() -> str:
+    """Lista as categorias de produtos disponíveis na loja.
+    Use quando o cliente quiser saber o que a loja tem ou navegar por categoria."""
+    cats = _get_categories()
+    if not cats:
+        return "Nenhuma categoria encontrada."
+    lines = ["Categorias disponíveis na OutletSIM:\n"]
+    for c in cats:
+        lines.append(f"• {c['name']}")
+    return "\n".join(lines)
+
+
+@tool
+def search_products_by_category(category_name: str, limit: int = 10) -> str:
+    """Busca produtos de uma categoria pelo NOME da categoria (ex: 'ROUPAS MASCULINAS', 'Alimentos').
+    Use quando o cliente escolher uma categoria da lista. Passe o nome exato como apareceu na lista."""
+    cats = _get_categories()
+    # Busca case-insensitive e por substring
+    query = category_name.lower().strip()
+    match = next(
+        (c for c in cats if query in c["name"].lower() or c["name"].lower() in query),
+        None
+    )
+    if not match:
+        names = ", ".join(c["name"] for c in cats[:8])
+        return f"Categoria '{category_name}' não encontrada. Categorias disponíveis: {names}..."
+
+    data = client.get("/products", {
+        "category_id": match["id"],
+        "available": 1,
+        "limit": limit,
+        "order": "price",
+    })
+    products = data.get("Products", [])
+    total = data.get("paging", {}).get("total", 0)
+    if not products:
+        return f"Nenhum produto disponível na categoria '{match['name']}' no momento."
+
+    return f"Produtos em '{match['name']}':\n\n" + _format_products(products, total)
 
 
 @tool
