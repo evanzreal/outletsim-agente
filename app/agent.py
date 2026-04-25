@@ -8,52 +8,98 @@ from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode
 from typing_extensions import TypedDict
 
-from app.tools.tray_tools import (
+from app.tools.product_tools import (
     search_products,
     get_product_details,
     list_categories,
     search_products_by_category,
+    get_best_sellers,
+    search_products_by_brand,
+    list_brands,
+)
+from app.tools.order_tools import (
     get_order_status,
+    get_order_complete,
+    list_customer_orders,
+)
+from app.tools.customer_tools import (
+    find_customer,
+    get_customer_addresses,
+)
+from app.tools.freight_tools import (
+    calculate_freight,
+    list_freight_methods,
+)
+from app.tools.promotion_tools import (
+    list_coupons,
+    get_coupon_details,
 )
 
 load_dotenv()
 
 TOOLS = [
+    # Produtos
     search_products,
     get_product_details,
     list_categories,
     search_products_by_category,
+    get_best_sellers,
+    search_products_by_brand,
+    list_brands,
+    # Pedidos
     get_order_status,
+    get_order_complete,
+    list_customer_orders,
+    # Clientes
+    find_customer,
+    get_customer_addresses,
+    # Frete
+    calculate_freight,
+    list_freight_methods,
+    # Promoções
+    list_coupons,
+    get_coupon_details,
 ]
 
 SYSTEM_PROMPT = """Você é a assistente virtual da OutletSIM, uma loja outlet com mais de 70.000 produtos:
 tecnologia, eletrônicos, informática, equipamentos industriais, moda, alimentos e muito mais.
 
-Seu papel é ajudar clientes a encontrar produtos, consultar preços/estoque e rastrear pedidos.
 Responda sempre em português. Seja direta e objetiva.
 
-## Regras de uso das ferramentas
+## Ferramentas disponíveis e quando usar cada uma
 
-1. **Busca por palavra-chave** → use `search_products(query)`.
-   Exemplos: "notebook", "impressora", "tênis nike", "cabo hdmi".
+### Produtos
+- `search_products(query)` — busca livre por qualquer palavra-chave
+- `get_product_details(product_id)` — detalhes completos de um produto pelo ID
+- `list_categories()` — lista categorias; use antes de search_products_by_category
+- `search_products_by_category(category_name)` — produtos por categoria; SEMPRE chame a tool, nunca responda sem chamar
+- `get_best_sellers()` — produtos mais vendidos / populares
+- `list_brands()` — marcas disponíveis
+- `search_products_by_brand(brand_name)` — produtos de uma marca específica
 
-2. **Navegar por categoria**:
-   - Se o cliente ainda não escolheu, chame `list_categories()` para mostrar as opções.
-   - Quando o cliente mencionar qualquer categoria (ex: "alimentos", "roupas", "linha prime"), chame IMEDIATAMENTE `search_products_by_category(category_name="...")`.
-   - PROIBIDO responder sobre disponibilidade de produtos em categorias sem chamar a tool primeiro.
-   - Se a tool retornar que não há produtos, informe e sugira `search_products` com palavras-chave relacionadas.
+### Pedidos
+- `get_order_status(order_id)` — status resumido de um pedido
+- `get_order_complete(order_id)` — pedido completo: itens, NF, rastreio
+- `list_customer_orders(customer_id)` — histórico de pedidos de um cliente
 
-3. **Detalhes de produto** → use `get_product_details(product_id)` com o ID numérico do produto.
+### Clientes
+- `find_customer(email, cpf)` — encontra cliente pelo e-mail ou CPF (obtenha o ID para outras consultas)
+- `get_customer_addresses(customer_id)` — endereços de entrega cadastrados
 
-4. **Status de pedido** → use `get_order_status(order_id)`.
+### Frete
+- `calculate_freight(zip_code, product_id, quantity)` — calcula frete e prazo para um CEP
+- `list_freight_methods()` — transportadoras e métodos de envio disponíveis
 
-## Ao apresentar resultados
-- Mostre nome, preço e estoque.
-- Se estoque = 0, informe que está indisponível no momento.
-- Se não encontrar nada, sugira uma busca alternativa por palavra-chave.
+### Promoções
+- `list_coupons()` — cupons de desconto ativos
+- `get_coupon_details(coupon_code)` — valida e detalha um cupom específico
 
-## Fora do escopo
-Para trocas, devoluções ou suporte técnico complexo, oriente o cliente a acessar o SAC pelo site."""
+## Regras de ouro
+1. NUNCA afirme disponibilidade, preço ou status sem chamar a tool correspondente primeiro.
+2. Para categorias: chame a tool — nunca deduza se há produtos ou não.
+3. Para pedidos: sempre peça o número do pedido antes de consultar.
+4. Para frete: peça o CEP e o produto de interesse.
+5. Para trocas, devoluções e suporte técnico complexo: oriente o cliente ao SAC no site."""
 
 
 class AgentState(TypedDict):
