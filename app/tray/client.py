@@ -64,11 +64,8 @@ def activate_from_code(code: str, store_api_host: str) -> dict:
 
 def _refresh_access_token() -> str:
     global _access_token, _refresh_token, _token_expires_at
-    resp = httpx.post(f"{API_HOST}/auth", json={
-        "consumer_key": CONSUMER_KEY,
-        "consumer_secret": CONSUMER_SECRET,
-        "refresh_token": _refresh_token,
-    }, timeout=15)
+    # Tray refresh é GET com query param (não POST com body)
+    resp = httpx.get(f"{API_HOST}/auth", params={"refresh_token": _refresh_token}, timeout=15)
     resp.raise_for_status()
     data = resp.json()
     _access_token = data["access_token"]
