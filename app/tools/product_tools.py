@@ -98,7 +98,7 @@ def search_products_by_category(category_name: str, limit: int = 10) -> str:
 def get_best_sellers(limit: int = 10) -> str:
     """Lista os produtos mais vendidos da loja.
     Use quando o cliente perguntar sobre produtos populares, mais vendidos ou recomendações."""
-    data = client.get("/products", {"available": 1, "limit": limit, "order": "quantity_sold", "sort": "desc"})
+    data = client.get("/products", {"available": 1, "limit": limit, "order": "quantity_sold"})
     products = data.get("Products", [])
     if not products:
         return "Não foi possível carregar os mais vendidos."
@@ -120,9 +120,12 @@ def search_products_by_brand(brand_name: str, limit: int = 10) -> str:
     brands = data.get("Brands", [])
     query = brand_name.lower().strip()
     match = next(
-        (b.get("Brand", b) for b in brands if query in b.get("Brand", b).get("name", "").lower()),
+        (b.get("Brand", b) for b in brands
+         if query in (b.get("Brand", b).get("name") or b.get("Brand", b).get("brand", "")).lower()),
         None
     )
+    if match:
+        match = {**match, "name": match.get("name") or match.get("brand", "")}
     if not match:
         return f"Marca '{brand_name}' não encontrada no catálogo."
     prods = client.get("/products", {"brand_id": match["id"], "available": 1, "limit": limit, "order": "price"})
@@ -147,5 +150,10 @@ def list_brands() -> str:
     brands = data.get("Brands", [])
     if not brands:
         return "Nenhuma marca encontrada."
-    names = [b.get("Brand", b).get("name", "") for b in brands if b.get("Brand", b).get("name")]
+    names = []
+    for b in brands:
+        br = b.get("Brand", b)
+        name = br.get("name") or br.get("brand", "")
+        if name:
+            names.append(name)
     return "Marcas disponíveis:\n" + "\n".join(f"• {n}" for n in sorted(names))
