@@ -1,5 +1,5 @@
 from pathlib import Path
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
@@ -7,6 +7,7 @@ from pydantic import BaseModel
 from langchain_core.messages import HumanMessage, AIMessage, BaseMessage
 
 from app.agent import chat
+from app.tray import client as tray_client
 
 STATIC_DIR = Path(__file__).parent / "static"
 
@@ -57,6 +58,33 @@ async def chat_endpoint(req: ChatRequest):
 @app.get("/health")
 async def health():
     return {"status": "ok"}
+
+
+@app.get("/auth/callback")
+async def auth_callback(request: Request):
+    """
+    Endpoint chamado pela Tray após instalação do app.
+    A Tray envia: ?code=XXX&api_address=https://loja.commercesuite.com.br
+    """
+    params = dict(request.query_params)
+    code = params.get("code")
+    api_address = params.get("api_address", "")
+
+    if not code:
+        raise HTTPException(status_code=400, detail="Parâmetro 'code' ausente.")
+
+    api_host = f"{api_address.rstrip('/')}/web_api" if api_address else tray_client.API_HOST
+
+    try:
+        data = tray_client.activate_from_code(code, api_host)
+        return {
+            "status": "ok",
+            "message": "Token gerado e salvo com sucesso.",
+            "store_id": data.get("store_id"),
+            "expires_at": data.get("date_expiration_access_token"),
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erro ao gerar token: {e}")
 
 
 @app.get("/")
