@@ -7,6 +7,7 @@ from langgraph.graph import StateGraph, END
 from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode
 from typing_extensions import TypedDict
+from langfuse.langchain import CallbackHandler
 
 from app.tools.product_tools import (
     search_products,
@@ -178,5 +179,6 @@ graph = graph_builder.compile()
 def chat(message: str, history: list[BaseMessage] | None = None) -> str:
     history = history or []
     state = {"messages": history + [HumanMessage(content=message)]}
-    result = graph.invoke(state)
+    langfuse_handler = CallbackHandler()
+    result = graph.invoke(state, config={"callbacks": [langfuse_handler]})
     return result["messages"][-1].content
