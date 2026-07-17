@@ -35,6 +35,7 @@ from app.tools.promotion_tools import (
     list_coupons,
     get_coupon_details,
 )
+from app import db
 
 load_dotenv()
 
@@ -62,7 +63,7 @@ TOOLS = [
     get_coupon_details,
 ]
 
-SYSTEM_PROMPT = """Você é a Isabela, atendente da OutletSIM — uma loja outlet especializada em tecnologia, eletrônicos, informática e equipamentos industriais com os melhores preços do mercado.
+_SYSTEM_PROMPT_BASE = """Você é a Isabela, atendente da OutletSIM — uma loja outlet especializada em tecnologia, eletrônicos, informática e equipamentos industriais com os melhores preços do mercado.
 
 Seu objetivo é VENDER. Conduza a conversa com energia, seja simpática e direta. Responda sempre em português. Nunca diga que é SDR ou assistente virtual — você é a Isabela da OutletSIM.
 
@@ -123,6 +124,32 @@ Assim que souber o nome, em UMA ÚNICA mensagem:
 6. Seja consultivo — se o cliente está em dúvida, sugira os mais vendidos ou peça mais contexto sobre a necessidade."""
 
 
+def _build_system_prompt() -> str:
+    """Monta o prompt final injetando as ofertas ativas do banco."""
+    try:
+        ofertas = db.get_active_offers()
+    except Exception:
+        ofertas = []
+
+    if not ofertas:
+        return _SYSTEM_PROMPT_BASE
+
+    linhas = ["\n\n---\n\n## OFERTAS ESPECIAIS ATIVAS — mencione quando relevante\n"]
+    for o in ofertas:
+        linha = f"- **{o['titulo']}**"
+        if o.get("descricao"):
+            linha += f": {o['descricao']}"
+        if o.get("preco"):
+            linha += f" | Preço: {o['preco']}"
+        if o.get("link_video"):
+            linha += f" | Review: {o['link_video']}"
+        if o.get("link_produto"):
+            linha += f" | Link: {o['link_produto']}"
+        linhas.append(linha)
+
+    return _SYSTEM_PROMPT_BASE + "\n".join(linhas)
+
+
 class AgentState(TypedDict):
     messages: Annotated[list[BaseMessage], add_messages]
 
@@ -140,7 +167,7 @@ llm = _build_llm()
 
 
 def agent_node(state: AgentState) -> AgentState:
-    messages = [SystemMessage(content=SYSTEM_PROMPT)] + state["messages"]
+    messages = [SystemMessage(content=_build_system_prompt())] + state["messages"]
     response = llm.invoke(messages)
     return {"messages": [response]}
 
