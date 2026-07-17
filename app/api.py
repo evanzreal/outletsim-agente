@@ -1,6 +1,9 @@
+import os
+import secrets
 from pathlib import Path
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, Depends
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
@@ -11,6 +14,24 @@ from app.tray import client as tray_client
 from app.admin import meta_agent as admin_agent
 
 STATIC_DIR = Path(__file__).parent / "static"
+
+_security = HTTPBasic()
+_ADMIN_USER = os.getenv("ADMIN_USER", "admin")
+_ADMIN_PASS = os.getenv("ADMIN_PASS", "Outlet@2026")
+
+
+def _require_admin(credentials: HTTPBasicCredentials = Depends(_security)):
+    ok = (
+        secrets.compare_digest(credentials.username.encode(), _ADMIN_USER.encode()) and
+        secrets.compare_digest(credentials.password.encode(), _ADMIN_PASS.encode())
+    )
+    if not ok:
+        raise HTTPException(
+            status_code=401,
+            detail="Credenciais inválidas",
+            headers={"WWW-Authenticate": "Basic"},
+        )
+
 
 app = FastAPI(title="OutletSIM Agente de IA", version="1.0.0")
 
@@ -67,7 +88,7 @@ class AdminChatRequest(BaseModel):
 
 
 @app.get("/admin/ofertas")
-async def admin_list_offers():
+async def admin_list_offers(_: None = Depends(_require_admin)):
     try:
         from app import db
         return {"ofertas": db.get_active_offers()}
@@ -76,7 +97,7 @@ async def admin_list_offers():
 
 
 @app.post("/admin/chat", response_model=ChatResponse)
-async def admin_chat_endpoint(req: AdminChatRequest):
+async def admin_chat_endpoint(req: AdminChatRequest, _: None = Depends(_require_admin)):
     try:
         history = [{"role": m.role, "content": m.content} for m in req.history]
         response = admin_agent.chat(req.message, history)
@@ -118,7 +139,7 @@ async def index():
 
 
 @app.get("/admin")
-async def admin_panel():
+async def admin_panel(_: None = Depends(_require_admin)):
     return FileResponse(STATIC_DIR / "admin.html")
 
 
