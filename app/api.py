@@ -66,6 +66,15 @@ class AdminChatRequest(BaseModel):
     history: list[Message] = []
 
 
+@app.get("/admin/ofertas")
+async def admin_list_offers():
+    try:
+        from app import db
+        return {"ofertas": db.get_active_offers()}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.post("/admin/chat", response_model=ChatResponse)
 async def admin_chat_endpoint(req: AdminChatRequest):
     try:
@@ -106,6 +115,11 @@ async def auth_callback(request: Request):
 @app.get("/")
 async def index():
     return FileResponse(STATIC_DIR / "index.html")
+
+
+@app.get("/admin")
+async def admin_panel():
+    return FileResponse(STATIC_DIR / "admin.html")
 
 
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
