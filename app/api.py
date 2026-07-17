@@ -8,6 +8,7 @@ from langchain_core.messages import HumanMessage, AIMessage, BaseMessage
 
 from app.agent import chat
 from app.tray import client as tray_client
+from app.admin import meta_agent as admin_agent
 
 STATIC_DIR = Path(__file__).parent / "static"
 
@@ -58,6 +59,21 @@ async def chat_endpoint(req: ChatRequest):
 @app.get("/health")
 async def health():
     return {"status": "ok"}
+
+
+class AdminChatRequest(BaseModel):
+    message: str
+    history: list[Message] = []
+
+
+@app.post("/admin/chat", response_model=ChatResponse)
+async def admin_chat_endpoint(req: AdminChatRequest):
+    try:
+        history = [{"role": m.role, "content": m.content} for m in req.history]
+        response = admin_agent.chat(req.message, history)
+        return ChatResponse(response=response)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/auth/callback")
