@@ -1,8 +1,7 @@
 import os
 from langchain_openai import ChatOpenAI
-from langchain.agents import create_openai_tools_agent, AgentExecutor
+from langchain.agents import create_agent
 from langchain_core.tools import tool
-from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.messages import HumanMessage, AIMessage
 
 from app import db
@@ -98,13 +97,6 @@ def atualizar_oferta(oferta_id: int, campo: str, valor: str) -> str:
 
 TOOLS = [listar_ofertas, adicionar_oferta, remover_oferta, atualizar_oferta]
 
-_prompt = ChatPromptTemplate.from_messages([
-    ("system", SYSTEM_PROMPT),
-    MessagesPlaceholder("history"),
-    ("human", "{input}"),
-    MessagesPlaceholder("agent_scratchpad"),
-])
-
 _llm = ChatOpenAI(
     model="gpt-4o-mini",
     openai_api_key=os.getenv("OPENROUTER_API_KEY"),
@@ -112,8 +104,7 @@ _llm = ChatOpenAI(
     temperature=0.2,
 )
 
-_agent = create_openai_tools_agent(_llm, TOOLS, _prompt)
-_executor = AgentExecutor(agent=_agent, tools=TOOLS, verbose=False)
+_agent = create_agent(model=_llm, tools=TOOLS, system_prompt=SYSTEM_PROMPT)
 
 
 def chat(message: str, history: list[dict] | None = None) -> str:
@@ -124,5 +115,5 @@ def chat(message: str, history: list[dict] | None = None) -> str:
         elif m["role"] == "assistant":
             lc_history.append(AIMessage(content=m["content"]))
 
-    result = _executor.invoke({"input": message, "history": lc_history})
-    return result["output"]
+    result = _agent.invoke({"messages": lc_history + [HumanMessage(content=message)]})
+    return result["messages"][-1].content
