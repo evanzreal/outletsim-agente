@@ -1,4 +1,5 @@
 import os
+from datetime import date
 from langchain_openai import ChatOpenAI
 from langchain.agents import create_agent
 from langchain_core.tools import tool
@@ -6,7 +7,7 @@ from langchain_core.messages import HumanMessage, AIMessage
 
 from app import db
 
-SYSTEM_PROMPT = """Você é o assistente admin da OutletSIM.
+_SYSTEM_PROMPT_BASE = """Você é o assistente admin da OutletSIM.
 Você ajuda o dono da loja a gerenciar as ofertas especiais que a Isabela (agente de vendas) vai mencionar para os clientes.
 
 Você pode:
@@ -17,7 +18,13 @@ Você pode:
 
 Sempre confirme o que foi feito após cada ação. Se o dono pedir para adicionar uma oferta, extraia as informações da mensagem e chame a ferramenta diretamente — não peça confirmação antes, só depois.
 
-Responda sempre em português."""
+Responda sempre em português.
+
+Datas: quando o usuário disser "amanhã", "semana que vem" ou qualquer referência relativa, converta para uma data real no formato YYYY-MM-DD com base na data de hoje. Hoje é {today}."""
+
+
+def _build_system_prompt() -> str:
+    return _SYSTEM_PROMPT_BASE.format(today=date.today().isoformat())
 
 
 @tool
@@ -104,7 +111,8 @@ _llm = ChatOpenAI(
     temperature=0.2,
 )
 
-_agent = create_agent(model=_llm, tools=TOOLS, system_prompt=SYSTEM_PROMPT)
+def _make_agent():
+    return create_agent(model=_llm, tools=TOOLS, system_prompt=_build_system_prompt())
 
 
 def chat(message: str, history: list[dict] | None = None) -> str:
@@ -115,5 +123,5 @@ def chat(message: str, history: list[dict] | None = None) -> str:
         elif m["role"] == "assistant":
             lc_history.append(AIMessage(content=m["content"]))
 
-    result = _agent.invoke({"messages": lc_history + [HumanMessage(content=message)]})
+    result = _make_agent().invoke({"messages": lc_history + [HumanMessage(content=message)]})
     return result["messages"][-1].content
