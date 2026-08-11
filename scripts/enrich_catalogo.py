@@ -1,12 +1,12 @@
 """
-Enriquece o catálogo buscando specs via Tavily + extração estruturada via LLM.
-Gera: especificacoes (texto vendável) + atributos (JSON por categoria).
+Enriquece o catálogo buscando specs via Tavily (advanced) + extração estruturada via LLM.
+Meta: >= 10 atributos preenchidos por produto.
 
 Uso:
-  python scripts/enrich_catalogo.py --limit 5      # testa com 5
-  python scripts/enrich_catalogo.py --all           # todos os produtos
-  python scripts/enrich_catalogo.py --id 12         # produto específico
-  python scripts/enrich_catalogo.py --rerun         # re-processa já enriquecidos
+  python scripts/enrich_catalogo.py --limit 5
+  python scripts/enrich_catalogo.py --all
+  python scripts/enrich_catalogo.py --id 12
+  python scripts/enrich_catalogo.py --rerun        # re-processa já enriquecidos
 """
 import os, sys, time, argparse, json
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -19,207 +19,319 @@ DSN            = os.getenv("DATABASE_URL", "postgresql://postgres:GIUasuiejaj828
 TAVILY_KEY     = os.getenv("TAVILY_TOKEN")
 OPENROUTER_KEY = os.getenv("OPENROUTER_API_KEY")
 
-# ── Schemas de atributos por categoria ───────────────────────────────────────
-#
-# Cada entrada define os campos que o LLM deve tentar preencher.
-# null = não encontrado. Use tipos nativos JSON.
+# ── Schemas por categoria ─────────────────────────────────────────────────────
 
 CATEGORY_SCHEMAS = {
-    "Memórias": {
-        "_desc": "Módulo de memória RAM para servidores e desktops",
-        "tipo": "DDR3 | DDR3L | DDR4 | DDR2",
-        "capacidade_gb": 0,
-        "frequencia_mhz": 0,
-        "formato": "DIMM | RDIMM | LRDIMM | SODIMM | ECC DIMM",
-        "ecc": True,
-        "registered": False,
-        "tensao_v": 1.5,
-        "pinos": 240,
-        "latencia_cl": None,
-        "compatibilidade_servidores": [],
-        "obs": None,
-    },
-    "HD/SSD": {
-        "_desc": "Disco rígido ou SSD para servidores",
-        "tipo": "HD | SSD",
-        "interface": "SAS | SATA | NVMe",
-        "capacidade": "600GB",
-        "fator_forma": "2.5\" | 3.5\"",
-        "rpm": None,
-        "velocidade_leitura_mbps": None,
-        "velocidade_escrita_mbps": None,
-        "cache_mb": None,
-        "iops": None,
-        "hot_swap": True,
-        "compatibilidade_servidores": ["Dell PowerEdge", "HP ProLiant"],
-        "obs": None,
-    },
-    "Firewall": {
-        "_desc": "Appliance de segurança de rede",
-        "marca": "",
-        "linha": "",
-        "throughput_firewall_gbps": None,
-        "throughput_ngfw_gbps": None,
-        "throughput_vpn_gbps": None,
-        "portas_ethernet": None,
-        "portas_sfp": None,
-        "portas_poe": None,
-        "vpn_ipsec": True,
-        "vpn_ssl": True,
-        "utm": True,
-        "ids_ips": True,
-        "usuarios_recomendados": None,
-        "sessoes_simultaneas": None,
-        "novas_conexoes_por_seg": None,
-        "obs": None,
-    },
-    "Telefonia": {
-        "_desc": "Telefone IP, digital ou analógico",
-        "tipo": "IP | Digital | Analógico | PABX | Gateway",
-        "protocolo": "SIP | H.323 | Digital | Analógico",
-        "contas_sip": None,
-        "display": None,
-        "display_colorido": False,
-        "poe": True,
-        "gigabit": False,
-        "viva_voz": True,
-        "teclas_programaveis": None,
-        "teclas_dsss": None,
-        "headset_rj9": True,
-        "bluetooth": False,
-        "usb": False,
-        "codecs": [],
-        "compatibilidade": [],
-        "obs": None,
-    },
-    "Body Cam": {
-        "_desc": "Câmera corporal para agentes de segurança",
-        "resolucao_video": "1080p | 720p | 4K",
-        "fps": None,
-        "armazenamento_gb": None,
-        "bateria_horas": None,
-        "ip_rating": None,
-        "gps": False,
-        "wifi": False,
-        "bluetooth": False,
-        "4g_lte": False,
-        "visao_noturna": False,
-        "audio_bidirecional": False,
-        "transmissao_ao_vivo": False,
-        "obs": None,
-    },
-    "Coletor de Dados": {
-        "_desc": "Coletor de dados portátil para operações logísticas",
-        "marca": "",
-        "os": "",
-        "leitor_codigo": "1D | 2D | QR | RFID",
-        "display_polegadas": None,
-        "display_touch": True,
-        "wifi_802_11": "",
-        "bluetooth": True,
-        "4g_lte": False,
-        "nfc": False,
-        "ip_rating": None,
-        "mil_std": None,
-        "bateria_mah": None,
-        "bateria_horas": None,
-        "camera_mp": None,
-        "ram_gb": None,
-        "armazenamento_gb": None,
-        "obs": None,
-    },
-    "Conferência": {
-        "_desc": "Equipamento de videoconferência ou audioconferência",
-        "tipo": "camera | speakerphone | kit_videoconferencia | microfone",
-        "resolucao_camera": None,
-        "campo_visao_graus": None,
-        "zoom_optico": None,
-        "zoom_digital": None,
-        "microfones_inclusos": None,
-        "alcance_microfone_m": None,
-        "cancelamento_ruido": True,
-        "viva_voz": True,
-        "usb": True,
-        "bluetooth": False,
-        "wifi": False,
-        "hdmi": False,
-        "teams_certificado": False,
-        "zoom_certificado": False,
-        "participantes_recomendados": None,
-        "obs": None,
-    },
-    "Segurança e CFTV": {
-        "_desc": "DVR, NVR, câmera ou equipamento de segurança",
-        "tipo": "DVR | NVR | MDVR | camera_bullet | camera_dome | alarme | outro",
-        "canais": None,
-        "resolucao_max": None,
-        "compressao": None,
-        "baias_hd": None,
-        "poe_portas": None,
-        "acesso_remoto": True,
-        "app_mobile": True,
-        "hdmi_out": True,
-        "ip_rating": None,
-        "visao_noturna_m": None,
-        "resolucao_mp": None,
-        "lente_mm": None,
-        "varifocal": False,
-        "obs": None,
-    },
-    "Controle de Acesso": {
-        "_desc": "Controlador de acesso, biometria, porteiro ou fechadura",
-        "tipo": "controlador | leitor_biometrico | video_porteiro | fechadura | sensor | receptor | alarme",
-        "tecnologias": [],
-        "capacidade_usuarios": None,
-        "portas_gerenciadas": None,
-        "protocolos": [],
-        "conectividade": [],
-        "ip_rating": None,
-        "alimentacao_v": None,
-        "obs": None,
-    },
-    "Equipamentos Financeiros": {
-        "_desc": "Equipamento para operações financeiras",
-        "tipo": "impressora_cheques | validadora_cedulas | outro",
-        "velocidade_notas_min": None,
-        "capacidade_alimentacao": None,
-        "capacidade_empilhamento": None,
-        "moedas_suportadas": [],
-        "display": None,
-        "conectividade": [],
-        "dimensoes_mm": None,
-        "peso_kg": None,
-        "obs": None,
-    },
-    "Áudio Visual": {
-        "_desc": "Projetor, mesa de som ou equipamento audiovisual",
-        "tipo": "projetor | mesa_som | outro",
-        "tecnologia": None,
-        "resolucao": None,
-        "luminosidade_lumens": None,
-        "contraste": None,
-        "canais_som": None,
-        "entradas": [],
-        "saidas": [],
-        "obs": None,
-    },
-    "Casa, Móveis e Decoração": {
-        "_desc": "Móvel, tapete ou item de decoração",
-        "tipo": "tapete | cadeira | sofa | mesa | outro",
-        "material": None,
-        "dimensoes": None,
-        "cor": None,
-        "estilo": None,
-        "obs": None,
-    },
+    "Memórias": """{
+  "fabricante": null,
+  "tipo": null,
+  "capacidade_gb": null,
+  "frequencia_mhz": null,
+  "velocidade_pc": null,
+  "formato": null,
+  "pinos": null,
+  "tensao_v": null,
+  "latencia_cl": null,
+  "ecc": null,
+  "registered": null,
+  "unbuffered": null,
+  "ranques": null,
+  "largura_banda_gbs": null,
+  "compatibilidade_servidores": [],
+  "numero_part": null,
+  "peso_g": null,
+  "obs": null
+}""",
+
+    "HD/SSD": """{
+  "fabricante": null,
+  "tipo": null,
+  "interface": null,
+  "velocidade_interface": null,
+  "capacidade": null,
+  "capacidade_bytes": null,
+  "fator_forma": null,
+  "rpm": null,
+  "velocidade_leitura_mbps": null,
+  "velocidade_escrita_mbps": null,
+  "iops_leitura": null,
+  "iops_escrita": null,
+  "cache_mb": null,
+  "latencia_ms": null,
+  "tbw": null,
+  "hot_swap": null,
+  "altura_mm": null,
+  "peso_g": null,
+  "compatibilidade_servidores": [],
+  "certificacoes": [],
+  "numero_part": null,
+  "obs": null
+}""",
+
+    "Firewall": """{
+  "fabricante": null,
+  "modelo": null,
+  "linha": null,
+  "throughput_firewall_gbps": null,
+  "throughput_ngfw_gbps": null,
+  "throughput_ips_gbps": null,
+  "throughput_tls_gbps": null,
+  "throughput_vpn_ipsec_gbps": null,
+  "throughput_vpn_ssl_gbps": null,
+  "portas_ethernet": null,
+  "portas_sfp": null,
+  "portas_poe": null,
+  "vpn_ipsec": null,
+  "vpn_ssl": null,
+  "utm": null,
+  "ids_ips": null,
+  "antivirus": null,
+  "filtro_web": null,
+  "sd_wan": null,
+  "usuarios_recomendados": null,
+  "sessoes_simultaneas": null,
+  "novas_conexoes_por_seg": null,
+  "latencia_us": null,
+  "rack_1u": null,
+  "consumo_watts": null,
+  "obs": null
+}""",
+
+    "Telefonia": """{
+  "fabricante": null,
+  "modelo": null,
+  "tipo": null,
+  "protocolo": null,
+  "contas_sip": null,
+  "linhas": null,
+  "display_polegadas": null,
+  "display_resolucao": null,
+  "display_colorido": null,
+  "poe": null,
+  "gigabit": null,
+  "portas_ethernet": null,
+  "viva_voz": null,
+  "teclas_programaveis": null,
+  "teclas_linha": null,
+  "headset_rj9": null,
+  "bluetooth": null,
+  "usb": null,
+  "wifi": null,
+  "codecs": [],
+  "peso_g": null,
+  "dimensoes_mm": null,
+  "alimentacao_v": null,
+  "compatibilidade": [],
+  "obs": null
+}""",
+
+    "Body Cam": """{
+  "fabricante": null,
+  "modelo": null,
+  "resolucao_video": null,
+  "fps": null,
+  "resolucao_foto_mp": null,
+  "armazenamento_interno_gb": null,
+  "suporte_sd": null,
+  "bateria_mah": null,
+  "bateria_horas": null,
+  "ip_rating": null,
+  "temperatura_operacao": null,
+  "gps": null,
+  "wifi": null,
+  "bluetooth": null,
+  "4g_lte": null,
+  "visao_noturna": null,
+  "visao_noturna_m": null,
+  "audio_bidirecional": null,
+  "transmissao_ao_vivo": null,
+  "campo_visao_graus": null,
+  "peso_g": null,
+  "dimensoes_mm": null,
+  "obs": null
+}""",
+
+    "Coletor de Dados": """{
+  "fabricante": null,
+  "modelo": null,
+  "os": null,
+  "processador": null,
+  "ram_gb": null,
+  "armazenamento_gb": null,
+  "display_polegadas": null,
+  "display_touch": null,
+  "display_resolucao": null,
+  "leitor_codigo": null,
+  "distancia_leitura_cm": null,
+  "wifi": null,
+  "bluetooth": null,
+  "4g_lte": null,
+  "nfc": null,
+  "rfid": null,
+  "ip_rating": null,
+  "mil_std": null,
+  "queda_m": null,
+  "bateria_mah": null,
+  "bateria_horas": null,
+  "camera_mp": null,
+  "gps": null,
+  "peso_g": null,
+  "dimensoes_mm": null,
+  "obs": null
+}""",
+
+    "Conferência": """{
+  "fabricante": null,
+  "modelo": null,
+  "tipo": null,
+  "resolucao_camera": null,
+  "fps": null,
+  "campo_visao_graus": null,
+  "zoom_optico": null,
+  "zoom_digital": null,
+  "microfones_inclusos": null,
+  "alcance_microfone_m": null,
+  "cancelamento_ruido": null,
+  "alto_falante": null,
+  "usb": null,
+  "bluetooth": null,
+  "wifi": null,
+  "hdmi": null,
+  "ethernet": null,
+  "teams_certificado": null,
+  "zoom_certificado": null,
+  "resolucao_maxima_suportada": null,
+  "participantes_recomendados": null,
+  "peso_g": null,
+  "obs": null
+}""",
+
+    "Segurança e CFTV": """{
+  "fabricante": null,
+  "modelo": null,
+  "tipo": null,
+  "canais": null,
+  "resolucao_max": null,
+  "compressao": [],
+  "baias_hd": null,
+  "capacidade_hd_max_tb": null,
+  "poe_portas": null,
+  "poe_watts_total": null,
+  "saida_hdmi": null,
+  "saida_vga": null,
+  "acesso_remoto": null,
+  "app_mobile": null,
+  "analise_inteligente": null,
+  "ip_rating": null,
+  "resolucao_mp": null,
+  "lente_mm": null,
+  "varifocal": null,
+  "visao_noturna_m": null,
+  "infravermelho": null,
+  "poe_camera": null,
+  "audio": null,
+  "consumo_watts": null,
+  "alimentacao_v": null,
+  "dimensoes_mm": null,
+  "peso_g": null,
+  "obs": null
+}""",
+
+    "Controle de Acesso": """{
+  "fabricante": null,
+  "modelo": null,
+  "tipo": null,
+  "tecnologias": [],
+  "capacidade_usuarios": null,
+  "capacidade_cartoes": null,
+  "capacidade_eventos": null,
+  "portas_gerenciadas": null,
+  "leitoras_suportadas": null,
+  "protocolos": [],
+  "wiegand": null,
+  "rs485": null,
+  "tcp_ip": null,
+  "wifi": null,
+  "bluetooth": null,
+  "4g": null,
+  "display": null,
+  "ip_rating": null,
+  "alimentacao_v": null,
+  "corrente_ma": null,
+  "dimensoes_mm": null,
+  "peso_g": null,
+  "obs": null
+}""",
+
+    "Equipamentos Financeiros": """{
+  "fabricante": null,
+  "modelo": null,
+  "tipo": null,
+  "velocidade_notas_min": null,
+  "capacidade_alimentacao": null,
+  "capacidade_empilhamento": null,
+  "capacidade_rejeicao": null,
+  "moedas_suportadas": [],
+  "deteccao_falsificacao": [],
+  "display": null,
+  "display_polegadas": null,
+  "conectividade": [],
+  "alimentacao_v": null,
+  "consumo_watts": null,
+  "dimensoes_mm": null,
+  "peso_kg": null,
+  "velocidade_impressao_seg": null,
+  "obs": null
+}""",
+
+    "Áudio Visual": """{
+  "fabricante": null,
+  "modelo": null,
+  "tipo": null,
+  "tecnologia": null,
+  "resolucao_nativa": null,
+  "resolucao_maxima": null,
+  "luminosidade_lumens": null,
+  "contraste": null,
+  "vida_lampada_horas": null,
+  "canais_som": null,
+  "potencia_watts": null,
+  "entradas": [],
+  "saidas": [],
+  "conectividade": [],
+  "dimensoes_mm": null,
+  "peso_kg": null,
+  "obs": null
+}""",
+
+    "Casa, Móveis e Decoração": """{
+  "tipo": null,
+  "material": null,
+  "dimensoes": null,
+  "area_m2": null,
+  "cor": null,
+  "estilo": null,
+  "pais_origem": null,
+  "marca": null,
+  "composicao": null,
+  "capacidade_pessoas": null,
+  "peso_kg": null,
+  "obs": null
+}""",
 }
 
-DEFAULT_SCHEMA = {
-    "tipo": None,
-    "especificacoes_principais": [],
-    "compatibilidade": [],
-    "obs": None,
-}
+DEFAULT_SCHEMA = """{
+  "fabricante": null,
+  "modelo": null,
+  "tipo": null,
+  "conectividade": [],
+  "alimentacao_v": null,
+  "dimensoes_mm": null,
+  "peso_g": null,
+  "compatibilidade": [],
+  "certificacoes": [],
+  "obs": null
+}"""
 
 
 def get_schema(categoria):
@@ -240,10 +352,7 @@ def ensure_columns():
         with conn.cursor() as cur:
             cur.execute("ALTER TABLE catalogo_produtos ADD COLUMN IF NOT EXISTS especificacoes TEXT")
             cur.execute("ALTER TABLE catalogo_produtos ADD COLUMN IF NOT EXISTS atributos JSONB")
-            cur.execute("""
-                CREATE INDEX IF NOT EXISTS idx_catalogo_atributos
-                ON catalogo_produtos USING GIN(atributos)
-            """)
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_catalogo_atributos ON catalogo_produtos USING GIN(atributos)")
 
 
 def fetch_products(limit=None, product_id=None, only_missing=True):
@@ -255,11 +364,7 @@ def fetch_products(limit=None, product_id=None, only_missing=True):
             if product_id:
                 where += f" AND id = {int(product_id)}"
             lim = f"LIMIT {int(limit)}" if limit else ""
-            cur.execute(f"""
-                SELECT id, categoria, titulo, descricao
-                FROM catalogo_produtos {where}
-                ORDER BY id {lim}
-            """)
+            cur.execute(f"SELECT id, categoria, titulo, descricao FROM catalogo_produtos {where} ORDER BY id {lim}")
             return [dict(r) for r in cur.fetchall()]
 
 
@@ -267,9 +372,7 @@ def save_enrichment(product_id, especificacoes, atributos):
     with _conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                """UPDATE catalogo_produtos
-                   SET especificacoes = %s, atributos = %s
-                   WHERE id = %s""",
+                "UPDATE catalogo_produtos SET especificacoes=%s, atributos=%s WHERE id=%s",
                 (especificacoes, json.dumps(atributos, ensure_ascii=False), product_id)
             )
 
@@ -277,28 +380,39 @@ def save_enrichment(product_id, especificacoes, atributos):
 # ── Tavily ────────────────────────────────────────────────────────────────────
 
 def tavily_search(titulo, categoria):
-    query = f"{titulo} especificações técnicas ficha técnica datasheet"
-    resp = requests.post(
-        "https://api.tavily.com/search",
-        json={
-            "api_key": TAVILY_KEY,
-            "query": query,
-            "search_depth": "basic",
-            "max_results": 6,
-            "include_answer": True,
-        },
-        timeout=15,
-    )
-    resp.raise_for_status()
-    data = resp.json()
+    # Busca 1: ficha técnica / datasheet (advanced — conteúdo completo)
+    r1 = requests.post("https://api.tavily.com/search", json={
+        "api_key": TAVILY_KEY,
+        "query": f"{titulo} ficha técnica especificações datasheet",
+        "search_depth": "advanced",
+        "max_results": 4,
+        "include_answer": True,
+    }, timeout=20)
+    r1.raise_for_status()
+    d1 = r1.json()
+
+    # Busca 2: manual / características do produto (basic)
+    r2 = requests.post("https://api.tavily.com/search", json={
+        "api_key": TAVILY_KEY,
+        "query": f"{titulo} características técnicas manual",
+        "search_depth": "basic",
+        "max_results": 3,
+        "include_answer": False,
+    }, timeout=15)
+    r2.raise_for_status()
+    d2 = r2.json()
 
     parts = []
-    if data.get("answer"):
-        parts.append(f"Resumo: {data['answer']}")
-    for r in data.get("results", [])[:5]:
-        snippet = r.get("content", "").strip()
-        if snippet:
-            parts.append(f"[{r.get('title', '')}]\n{snippet[:700]}")
+    if d1.get("answer"):
+        parts.append(f"[Resumo automático]\n{d1['answer']}")
+    for r in d1.get("results", [])[:4]:
+        content = r.get("content", "").strip()
+        if content:
+            parts.append(f"[{r.get('title','')}]\n{content[:800]}")
+    for r in d2.get("results", [])[:3]:
+        content = r.get("content", "").strip()
+        if content:
+            parts.append(f"[{r.get('title','')}]\n{content[:500]}")
 
     return "\n\n".join(parts)
 
@@ -307,39 +421,38 @@ def tavily_search(titulo, categoria):
 
 def enrich_with_llm(titulo, categoria, descricao, search_context):
     schema = get_schema(categoria)
-    schema_str = json.dumps({k: v for k, v in schema.items() if k != "_desc"},
-                            ensure_ascii=False, indent=2)
-    cat_desc = schema.get("_desc", categoria)
 
-    prompt = f"""Você é especialista em tecnologia e vai enriquecer dados de um produto para um e-commerce outlet.
+    prompt = f"""Você é especialista em tecnologia e vai extrair dados de um produto para um e-commerce outlet B2B.
 
 Produto: {titulo}
-Categoria: {categoria} ({cat_desc})
-{f'Descrição atual: {descricao}' if descricao else ''}
+Categoria: {categoria}
+{f'Info adicional: {descricao}' if descricao else ''}
 
-Informações encontradas na web:
-{search_context[:4000] if search_context else 'Nenhuma informação encontrada.'}
+=== CONTEÚDO ENCONTRADO NA WEB ===
+{search_context[:5000] if search_context else 'Sem resultados de busca.'}
+=== FIM DO CONTEÚDO ===
 
----
+Retorne um JSON com EXATAMENTE dois campos:
 
-Sua tarefa é retornar um JSON com DOIS campos:
+"especificacoes": texto corrido em português (100-150 palavras), focado em vender o produto para empresas.
+  - Tom consultivo e técnico — esse texto vai ser lido pela IA de vendas
+  - Mencione performance, casos de uso, compatibilidade e diferenciais reais
+  - Não repita o nome do produto na primeira palavra
+  - Sem bullet points, sem títulos
 
-1. "especificacoes": texto corrido em português (máximo 130 palavras), focado em vender o produto.
-   - Destaque diferenciais, performance e casos de uso
-   - Seja específico: números, velocidades, capacidades reais
-   - Não invente — omita o que não souber
-   - Sem bullet points, sem títulos, sem introdução genérica
+"atributos": preencha o schema abaixo com os valores reais.
+  REGRAS IMPORTANTES:
+  - Preencha TODOS os campos que conseguir — o objetivo é ter o máximo de atributos preenchidos
+  - Infira a partir do contexto quando razoável (ex: se o título diz "POE", poe=true; se diz "Tipo 2,5", fator_forma="2.5\"")
+  - Use null apenas quando realmente não há como saber
+  - Números: sem unidade (a unidade está no nome do campo)
+  - Arrays: sempre preencha com o que encontrou, mesmo que seja só 1 item
+  - Booleanos: true/false (não null) quando dá pra inferir do contexto
 
-2. "atributos": preencha o schema abaixo com os valores reais do produto.
-   - Use null para campos desconhecidos (não invente valores)
-   - Arrays vazios [] se não souber compatibilidades
-   - Booleanos: true/false
-   - Números sem unidade (coloque a unidade no nome do campo)
+Schema:
+{schema}
 
-Schema de atributos para esta categoria:
-{schema_str}
-
-Retorne APENAS o JSON válido, sem markdown, sem explicações."""
+Retorne SOMENTE o JSON válido, sem markdown."""
 
     resp = requests.post(
         "https://openrouter.ai/api/v1/chat/completions",
@@ -348,25 +461,24 @@ Retorne APENAS o JSON válido, sem markdown, sem explicações."""
             "model": "openai/gpt-4o-mini",
             "messages": [{"role": "user", "content": prompt}],
             "temperature": 0.1,
-            "max_tokens": 600,
+            "max_tokens": 900,
             "response_format": {"type": "json_object"},
         },
-        timeout=25,
+        timeout=30,
     )
     resp.raise_for_status()
-    raw = resp.json()["choices"][0]["message"]["content"].strip()
-    return json.loads(raw)
+    return json.loads(resp.json()["choices"][0]["message"]["content"].strip())
 
 
 # ── main ──────────────────────────────────────────────────────────────────────
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--limit",  type=int,  help="Enriquecer N produtos sem atributos")
+    parser.add_argument("--limit",  type=int,          help="N produtos sem atributos")
     parser.add_argument("--all",    action="store_true", help="Todos sem atributos")
-    parser.add_argument("--id",     type=int,  help="Produto específico pelo ID")
+    parser.add_argument("--id",     type=int,          help="Produto específico pelo ID")
     parser.add_argument("--rerun",  action="store_true", help="Re-processa já enriquecidos")
-    parser.add_argument("--delay",  type=float, default=1.5, help="Segundos entre requisições")
+    parser.add_argument("--delay",  type=float, default=2.0)
     args = parser.parse_args()
 
     ensure_columns()
@@ -387,26 +499,21 @@ def main():
         return
 
     print(f"\n🔍 Enriquecendo {len(products)} produto(s)...\n")
-
     ok = err = 0
+
     for i, p in enumerate(products, 1):
         print(f"[{i}/{len(products)}] ID {p['id']} | {p['categoria']} — {p['titulo']}")
         try:
             context   = tavily_search(p["titulo"], p["categoria"])
             result    = enrich_with_llm(p["titulo"], p["categoria"], p.get("descricao"), context)
-
             specs     = result.get("especificacoes", "")
-            atributos = result.get("atributos", {})
-
-            # remove campo interno _desc se LLM incluiu
-            atributos.pop("_desc", None)
+            atributos = {k: v for k, v in result.get("atributos", {}).items() if k != "_desc"}
 
             save_enrichment(p["id"], specs, atributos)
 
-            print(f"  ✓ specs: {specs[:100]}…")
-            # mostra atributos não-nulos
-            filled = {k: v for k, v in atributos.items() if v not in (None, [], "", False)}
-            print(f"  ✓ atributos preenchidos: {list(filled.keys())}")
+            filled = {k: v for k, v in atributos.items()
+                      if v not in (None, [], "", False) and k != "obs"}
+            print(f"  ✓ {len(filled)} atributos preenchidos: {list(filled.keys())}")
             ok += 1
         except Exception as e:
             print(f"  ✗ Erro: {e}")
