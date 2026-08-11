@@ -62,3 +62,36 @@ def update_offer(offer_id: int, **kwargs) -> bool:
                 (*fields.values(), offer_id)
             )
             return cur.rowcount > 0
+
+
+# ── Catálogo de produtos ────────────────────────────────────────────────────
+
+def search_catalog(query: str, limit: int = 15) -> list[dict]:
+    """Busca produtos no catálogo por texto (título, categoria ou descrição)."""
+    like = f"%{query}%"
+    with _conn() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute("""
+                SELECT id, categoria, titulo, descricao, qtd, preco_venda
+                FROM catalogo_produtos
+                WHERE ativo = TRUE
+                  AND qtd > 0
+                  AND (
+                    titulo    ILIKE %s OR
+                    categoria ILIKE %s OR
+                    descricao ILIKE %s
+                  )
+                ORDER BY qtd DESC
+                LIMIT %s
+            """, (like, like, like, limit))
+            return [dict(r) for r in cur.fetchall()]
+
+
+def get_catalog_categories() -> list[str]:
+    with _conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT DISTINCT categoria FROM catalogo_produtos
+                WHERE ativo = TRUE ORDER BY categoria
+            """)
+            return [r[0] for r in cur.fetchall()]

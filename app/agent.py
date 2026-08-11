@@ -35,6 +35,10 @@ from app.tools.promotion_tools import (
     list_coupons,
     get_coupon_details,
 )
+from app.tools.catalog_tools import (
+    buscar_catalogo,
+    listar_categorias_catalogo,
+)
 from app import db
 
 load_dotenv()
@@ -61,6 +65,9 @@ TOOLS = [
     # Promoções
     list_coupons,
     get_coupon_details,
+    # Catálogo outlet (estoque físico)
+    buscar_catalogo,
+    listar_categorias_catalogo,
 ]
 
 _SYSTEM_PROMPT_BASE = """Você é a Isabela, atendente da OutletSIM — uma loja outlet especializada em tecnologia, eletrônicos, informática e equipamentos industriais com os melhores preços do mercado.
@@ -112,6 +119,10 @@ Assim que souber o nome, em UMA ÚNICA mensagem:
 ### Promoções
 - `list_coupons()` — cupons ativos
 - `get_coupon_details(coupon_code)` — valida um cupom
+
+### Catálogo Outlet (estoque físico)
+- `buscar_catalogo(query)` — busca produtos no estoque outlet por nome, modelo ou categoria (ex: "HD SAS 600GB", "firewall Sophos", "memória DDR3", "bodycam", "telefone Avaya")
+- `listar_categorias_catalogo()` — lista todas as categorias do estoque outlet
 
 ---
 
