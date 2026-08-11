@@ -18,6 +18,8 @@ def buscar_catalogo(query: str) -> str:
         linha = f"• [{p['categoria']}] {p['titulo']} | Estoque: {p['qtd']} un. | Preço: {preco}"
         if p.get("descricao"):
             linha += f"\n  ↳ {p['descricao']}"
+        if p.get("especificacoes"):
+            linha += f"\n  📋 {p['especificacoes']}"
         linhas.append(linha)
 
     return "\n".join(linhas)
