@@ -72,7 +72,7 @@ def search_catalog(query: str, limit: int = 15) -> list[dict]:
     with _conn() as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute("""
-                SELECT id, categoria, titulo, descricao, especificacoes, qtd, preco_venda
+                SELECT id, categoria, titulo, descricao, especificacoes, atributos, qtd, preco_venda
                 FROM catalogo_produtos
                 WHERE ativo = TRUE
                   AND qtd > 0
