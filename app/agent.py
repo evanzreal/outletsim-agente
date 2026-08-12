@@ -9,15 +9,6 @@ from langgraph.prebuilt import ToolNode
 from typing_extensions import TypedDict
 from langfuse.langchain import CallbackHandler
 
-from app.tools.product_tools import (
-    search_products,
-    get_product_details,
-    list_categories,
-    search_products_by_category,
-    get_best_sellers,
-    search_products_by_brand,
-    list_brands,
-)
 from app.tools.order_tools import (
     get_order_status,
     get_order_complete,
@@ -44,14 +35,9 @@ from app import db
 load_dotenv()
 
 TOOLS = [
-    # Produtos
-    search_products,
-    get_product_details,
-    list_categories,
-    search_products_by_category,
-    get_best_sellers,
-    search_products_by_brand,
-    list_brands,
+    # Catálogo outlet (fonte única de produtos)
+    buscar_catalogo,
+    listar_categorias_catalogo,
     # Pedidos
     get_order_status,
     get_order_complete,
@@ -65,9 +51,6 @@ TOOLS = [
     # Promoções
     list_coupons,
     get_coupon_details,
-    # Catálogo outlet (estoque físico)
-    buscar_catalogo,
-    listar_categorias_catalogo,
 ]
 
 _SYSTEM_PROMPT_BASE = """Você é a Isabela, atendente da OutletSIM — uma loja outlet especializada em tecnologia, eletrônicos, informática e equipamentos industriais com os melhores preços do mercado.
@@ -94,14 +77,9 @@ Assim que souber o nome, em UMA ÚNICA mensagem:
 
 ## FERRAMENTAS — use sempre antes de afirmar preço, estoque ou disponibilidade
 
-### Produtos
-- `search_products(query)` — busca livre por palavra-chave
-- `get_product_details(product_id)` — detalhes completos de um produto pelo ID
-- `list_categories()` — lista categorias disponíveis
-- `search_products_by_category(category_name)` — produtos de uma categoria
-- `get_best_sellers()` — produtos mais vendidos
-- `list_brands()` — marcas disponíveis
-- `search_products_by_brand(brand_name)` — produtos de uma marca específica
+### Catálogo Outlet — FONTE ÚNICA DE PRODUTOS
+- `buscar_catalogo(query)` — busca produtos no estoque outlet por nome, modelo, categoria ou característica técnica (ex: "HD SAS 600GB", "firewall Sophos", "memória DDR3", "bodycam", "telefone Avaya", "NVR 16 canais"). **Chame esta ferramenta SEMPRE que o cliente perguntar sobre qualquer produto.**
+- `listar_categorias_catalogo()` — lista todas as categorias disponíveis no estoque outlet
 
 ### Pedidos
 - `get_order_status(order_id)` — status de um pedido
@@ -119,10 +97,6 @@ Assim que souber o nome, em UMA ÚNICA mensagem:
 ### Promoções
 - `list_coupons()` — cupons ativos
 - `get_coupon_details(coupon_code)` — valida um cupom
-
-### Catálogo Outlet (estoque físico)
-- `buscar_catalogo(query)` — busca produtos no estoque outlet por nome, modelo ou categoria (ex: "HD SAS 600GB", "firewall Sophos", "memória DDR3", "bodycam", "telefone Avaya")
-- `listar_categorias_catalogo()` — lista todas as categorias do estoque outlet
 
 ---
 
