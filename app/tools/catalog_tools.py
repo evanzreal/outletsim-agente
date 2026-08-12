@@ -22,10 +22,11 @@ def _fmt_atributos(atributos: dict) -> str:
 
 @tool
 def buscar_catalogo(query: str) -> str:
-    """Busca produtos no estoque outlet da OutletSIM por nome, modelo, categoria ou característica técnica.
-    Use quando o cliente perguntar sobre disponibilidade ou preço de qualquer produto do estoque físico.
-    Exemplos: 'HD SAS 600GB', 'firewall Sophos', 'memória DDR3 8GB', 'bodycam', 'telefone Avaya',
-    'coletor zebra', 'NVR 16 canais', 'SSD SAS 2.5'.
+    """OBRIGATÓRIO chamar antes de qualquer resposta sobre produtos.
+    Busca produtos no estoque outlet da OutletSIM por nome, modelo, categoria ou característica técnica.
+    Chame SEMPRE que o cliente mencionar qualquer produto, marca, tipo de equipamento ou perguntar sobre disponibilidade/preço.
+    Exemplos de query: 'DDR3', 'firewall Sophos', 'HD SAS 600GB', 'bodycam', 'telefone Avaya',
+    'coletor zebra', 'NVR 16 canais', 'SSD SAS 2.5', 'controle de acesso', 'memoria'.
     """
     results = db.search_catalog(query)
     if not results:
