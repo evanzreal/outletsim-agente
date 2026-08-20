@@ -13,6 +13,7 @@ from langchain_core.messages import HumanMessage, AIMessage, BaseMessage
 from app.agent import chat
 from app.tray import client as tray_client
 from app.admin import meta_agent as admin_agent
+from app import rdstation
 
 _RDS_CLIENT_ID     = os.getenv("RDSTATION_CLIENT_ID", "")
 _RDS_CLIENT_SECRET = os.getenv("RDSTATION_CLIENT_SECRET", "")
@@ -54,9 +55,16 @@ class Message(BaseModel):
     content: str
 
 
+_HUMAN_TAKEOVER_MSG = (
+    "Olá! Seu atendimento foi assumido por um de nossos especialistas. "
+    "Em breve alguém da equipe da OutletSIM vai continuar a conversa com você. 😊"
+)
+
+
 class ChatRequest(BaseModel):
     message: str
     history: list[Message] = []
+    contact_identifier: str | None = None  # e-mail ou telefone do contato na RD Station
 
 
 class ChatResponse(BaseModel):
@@ -76,6 +84,10 @@ def _to_lc_messages(history: list[Message]) -> list[BaseMessage]:
 @app.post("/chat", response_model=ChatResponse)
 async def chat_endpoint(req: ChatRequest):
     try:
+        # gate: verifica atendimento humano antes de acionar o agente
+        if req.contact_identifier and rdstation.is_human_takeover(req.contact_identifier):
+            return ChatResponse(response=_HUMAN_TAKEOVER_MSG)
+
         history = _to_lc_messages(req.history)
         response = chat(req.message, history)
         return ChatResponse(response=response)

@@ -97,3 +97,29 @@ def patch(path: str, body: dict) -> dict:
     )
     resp.raise_for_status()
     return resp.json()
+
+
+def get_contact(identifier: str) -> dict | None:
+    """Busca contato por e-mail ou telefone. Retorna None se não encontrado."""
+    # tenta por e-mail
+    if "@" in identifier:
+        data = get("/platform/contacts", params={"email": identifier})
+    else:
+        # normaliza telefone (remove +, espaços, traços)
+        phone = "".join(c for c in identifier if c.isdigit())
+        data = get("/platform/contacts", params={"mobile_phone": phone})
+
+    contacts = data.get("contacts", [])
+    return contacts[0] if contacts else None
+
+
+def is_human_takeover(identifier: str) -> bool:
+    """Retorna True se cf_atendimento_humano == 'sim' para o contato."""
+    try:
+        contact = get_contact(identifier)
+        if not contact:
+            return False
+        fields = contact.get("cf_atendimento_humano", "nao")
+        return str(fields).lower() == "sim"
+    except Exception:
+        return False  # em caso de erro, permite o agent responder
