@@ -1,6 +1,7 @@
 import os
 import secrets
 import httpx
+from contextlib import asynccontextmanager
 from pathlib import Path
 from fastapi import FastAPI, HTTPException, Request, Depends
 from fastapi.middleware.cors import CORSMiddleware
@@ -13,8 +14,7 @@ from langchain_core.messages import HumanMessage, AIMessage, BaseMessage
 from app.agent import chat
 from app.tray import client as tray_client
 from app.admin import meta_agent as admin_agent
-from app import rdstation, whatsapp, db, vagner
-from langchain_core.messages import HumanMessage, AIMessage
+from app import rdstation, whatsapp, db, vagner, batcher
 
 _RDS_CLIENT_ID     = os.getenv("RDSTATION_CLIENT_ID", "")
 _RDS_CLIENT_SECRET = os.getenv("RDSTATION_CLIENT_SECRET", "")
@@ -41,7 +41,44 @@ def _require_admin(credentials: HTTPBasicCredentials = Depends(_security)):
         )
 
 
-app = FastAPI(title="OutletSIM Agente de IA", version="1.0.0")
+def _process_wa_message(phone: str, text: str) -> None:
+    """Processador síncrono chamado pelo batcher após debounce de 7s."""
+    if rdstation.is_human_takeover(phone):
+        return
+
+    if vagner.is_new_contact(phone):
+        vagner.send_welcome(phone)
+        return
+
+    result = vagner.handle(phone, text)
+    if result is None:
+        return
+
+    raw_history = db.get_wa_session(phone)
+    lc_history = []
+    for m in raw_history:
+        if m.get("role") == "user":
+            lc_history.append(HumanMessage(content=m["content"]))
+        elif m.get("role") == "assistant":
+            lc_history.append(AIMessage(content=m["content"]))
+
+    response = chat(text, lc_history)
+
+    updated = [m for m in raw_history if not m.get("__step") and not m.get("__name")] + [
+        {"role": "user",      "content": text},
+        {"role": "assistant", "content": response},
+    ]
+    db.save_wa_session(phone, updated[-40:])
+    whatsapp.send_text(phone, response)
+
+
+@asynccontextmanager
+async def _lifespan(app: FastAPI):
+    batcher.init(_process_wa_message)
+    yield
+
+
+app = FastAPI(title="OutletSIM Agente de IA", version="1.0.0", lifespan=_lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -154,7 +191,7 @@ async def auth_callback(request: Request):
 
 @app.post("/webhook/whatsapp")
 async def whatsapp_webhook(request: Request):
-    """Recebe mensagens do WhatsApp via UazAPI e responde com a Isabela."""
+    """Recebe mensagens do WhatsApp via UazAPI com debounce de 7s por número."""
     try:
         payload = await request.json()
     except Exception:
@@ -162,11 +199,9 @@ async def whatsapp_webhook(request: Request):
 
     msg = payload.get("message", {})
 
-    # ignora mensagens enviadas pela própria instância
     if msg.get("fromMe", True):
         return {"status": "ignored"}
 
-    # aceita apenas mensagens de texto
     msg_type = msg.get("messageType", msg.get("type", ""))
     if msg_type.lower() not in ("conversation", "extendedtextmessage", "text"):
         return {"status": "ignored"}
@@ -175,7 +210,6 @@ async def whatsapp_webhook(request: Request):
     if not text:
         return {"status": "ignored"}
 
-    # extrai número limpo do sender_pn (ex: "554898672729@s.whatsapp.net" → "554898672729")
     sender_pn = msg.get("sender_pn", "")
     phone = sender_pn.replace("@s.whatsapp.net", "").replace("@c.us", "")
     if not phone:
@@ -183,45 +217,16 @@ async def whatsapp_webhook(request: Request):
     if not phone:
         return {"status": "ignored"}
 
-    # comando de reset de sessão
+    # reiniciar_agora é imediato — sem debounce
     if text.strip().lower() == "reiniciar_agora":
         db.clear_wa_session(phone)
         whatsapp.send_text(phone, "Conversa reiniciada. Olá! Tudo bem? Aqui é o Vagner, da OutletSIM 👋 Antes da gente continuar, qual seu nome?")
         db.save_wa_session(phone, [{"__step": "welcome"}])
         return {"status": "reset"}
 
-    # gate: verifica atendimento humano na RD Station
-    if rdstation.is_human_takeover(phone):
-        return {"status": "human_takeover"}
-
-    # fluxo do Vagner (novo contato → sequência de boas-vindas + campanhas)
-    if vagner.is_new_contact(phone):
-        vagner.send_welcome(phone)
-        return {"status": "ok"}
-
-    result = vagner.handle(phone, text)
-    if result is None:
-        return {"status": "ok"}  # vagner já enviou tudo
-
-    # modo consultivo — usa o agente LLM
-    raw_history = db.get_wa_session(phone)
-    lc_history = []
-    for m in raw_history:
-        if m.get("role") == "user":
-            lc_history.append(HumanMessage(content=m["content"]))
-        elif m.get("role") == "assistant":
-            lc_history.append(AIMessage(content=m["content"]))
-
-    response = chat(text, lc_history)
-
-    updated = [m for m in raw_history if not m.get("__step") and not m.get("__name")] + [
-        {"role": "user",      "content": text},
-        {"role": "assistant", "content": response},
-    ]
-    db.save_wa_session(phone, updated[-40:])
-
-    whatsapp.send_text(phone, response)
-    return {"status": "ok"}
+    # acumula mensagem e reseta timer de 7s
+    await batcher.receive(phone, text)
+    return {"status": "queued"}
 
 
 @app.get("/auth/rdstation/authorize")
