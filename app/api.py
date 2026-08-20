@@ -1,5 +1,6 @@
 import os
 import secrets
+import httpx
 from pathlib import Path
 from fastapi import FastAPI, HTTPException, Request, Depends
 from fastapi.middleware.cors import CORSMiddleware
@@ -12,6 +13,11 @@ from langchain_core.messages import HumanMessage, AIMessage, BaseMessage
 from app.agent import chat
 from app.tray import client as tray_client
 from app.admin import meta_agent as admin_agent
+
+_RDS_CLIENT_ID     = os.getenv("RDSTATION_CLIENT_ID", "")
+_RDS_CLIENT_SECRET = os.getenv("RDSTATION_CLIENT_SECRET", "")
+_RDS_REDIRECT_URI  = "https://outletsim.valorgarantido.com/auth/rdstation/callback"
+_RDS_TOKEN_FILE    = Path("/opt/outletsim-agente/.rdstation_tokens.json")
 
 STATIC_DIR = Path(__file__).parent / "static"
 
@@ -131,6 +137,40 @@ async def auth_callback(request: Request):
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erro ao gerar token: {e}")
+
+
+@app.get("/auth/rdstation/callback")
+async def rdstation_callback(request: Request):
+    """Callback OAuth da RD Station — troca o code por access_token e salva."""
+    code = request.query_params.get("code")
+    if not code:
+        raise HTTPException(status_code=400, detail="Parâmetro 'code' ausente.")
+
+    async with httpx.AsyncClient() as client:
+        resp = await client.post(
+            "https://api.rd.services/auth/token",
+            json={
+                "client_id":     _RDS_CLIENT_ID,
+                "client_secret": _RDS_CLIENT_SECRET,
+                "code":          code,
+                "redirect_uri":  _RDS_REDIRECT_URI,
+            },
+            headers={"Content-Type": "application/json"},
+            timeout=15,
+        )
+
+    if resp.status_code != 200:
+        raise HTTPException(status_code=502, detail=f"RD Station error: {resp.text}")
+
+    tokens = resp.json()
+    import json
+    _RDS_TOKEN_FILE.write_text(json.dumps(tokens, indent=2))
+
+    return {
+        "status": "ok",
+        "message": "Autenticação com RD Station concluída.",
+        "expires_in": tokens.get("expires_in"),
+    }
 
 
 @app.get("/")
