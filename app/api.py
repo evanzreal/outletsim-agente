@@ -13,7 +13,7 @@ from langchain_core.messages import HumanMessage, AIMessage, BaseMessage
 from app.agent import chat
 from app.tray import client as tray_client
 from app.admin import meta_agent as admin_agent
-from app import rdstation, whatsapp, db
+from app import rdstation, whatsapp, db, vagner
 from langchain_core.messages import HumanMessage, AIMessage
 
 _RDS_CLIENT_ID     = os.getenv("RDSTATION_CLIENT_ID", "")
@@ -187,28 +187,33 @@ async def whatsapp_webhook(request: Request):
     if rdstation.is_human_takeover(phone):
         return {"status": "human_takeover"}
 
-    # carrega histórico da sessão
+    # fluxo do Vagner (novo contato → sequência de boas-vindas + campanhas)
+    if vagner.is_new_contact(phone):
+        vagner.send_welcome(phone)
+        return {"status": "ok"}
+
+    result = vagner.handle(phone, text)
+    if result is None:
+        return {"status": "ok"}  # vagner já enviou tudo
+
+    # modo consultivo — usa o agente LLM
     raw_history = db.get_wa_session(phone)
-    history = []
+    lc_history = []
     for m in raw_history:
-        if m["role"] == "user":
-            history.append(HumanMessage(content=m["content"]))
-        elif m["role"] == "assistant":
-            history.append(AIMessage(content=m["content"]))
+        if m.get("role") == "user":
+            lc_history.append(HumanMessage(content=m["content"]))
+        elif m.get("role") == "assistant":
+            lc_history.append(AIMessage(content=m["content"]))
 
-    # chama o agente
-    response = chat(text, history)
+    response = chat(text, lc_history)
 
-    # salva sessão (mantém últimas 20 trocas = 40 mensagens)
-    updated = raw_history + [
+    updated = [m for m in raw_history if not m.get("__step") and not m.get("__name")] + [
         {"role": "user",      "content": text},
         {"role": "assistant", "content": response},
     ]
     db.save_wa_session(phone, updated[-40:])
 
-    # envia resposta no WhatsApp
     whatsapp.send_text(phone, response)
-
     return {"status": "ok"}
 
 
