@@ -160,30 +160,30 @@ async def whatsapp_webhook(request: Request):
     except Exception:
         return {"status": "ignored"}
 
+    msg = payload.get("message", {})
+
     # ignora mensagens enviadas pela própria instância
-    if payload.get("fromMe") or payload.get("from_me"):
+    if msg.get("fromMe", True):
         return {"status": "ignored"}
 
-    msg_type = payload.get("messageType", "")
-    if msg_type not in ("conversation", "extendedTextMessage", "ExtendedTextMessage"):
+    # aceita apenas mensagens de texto
+    msg_type = msg.get("messageType", msg.get("type", ""))
+    if msg_type.lower() not in ("conversation", "extendedtextmessage", "text"):
         return {"status": "ignored"}
 
-    text = (
-        payload.get("text")
-        or payload.get("body")
-        or (payload.get("content") or {}).get("text", "")
-    ).strip()
-
+    text = (msg.get("text") or msg.get("content") or "").strip()
     if not text:
         return {"status": "ignored"}
 
-    sender = payload.get("sender", "")
-    phone  = sender.replace("@s.whatsapp.net", "").replace("@c.us", "")
-
+    # extrai número limpo do sender_pn (ex: "554898672729@s.whatsapp.net" → "554898672729")
+    sender_pn = msg.get("sender_pn", "")
+    phone = sender_pn.replace("@s.whatsapp.net", "").replace("@c.us", "")
+    if not phone:
+        phone = "".join(c for c in payload.get("chat", {}).get("phone", "") if c.isdigit())
     if not phone:
         return {"status": "ignored"}
 
-    # gate: verifica atendimento humano
+    # gate: verifica atendimento humano na RD Station
     if rdstation.is_human_takeover(phone):
         return {"status": "human_takeover"}
 
@@ -199,7 +199,7 @@ async def whatsapp_webhook(request: Request):
     # chama o agente
     response = chat(text, history)
 
-    # salva sessão atualizada (mantém últimas 20 trocas)
+    # salva sessão (mantém últimas 20 trocas = 40 mensagens)
     updated = raw_history + [
         {"role": "user",      "content": text},
         {"role": "assistant", "content": response},
