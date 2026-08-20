@@ -6,7 +6,7 @@ from fastapi import FastAPI, HTTPException, Request, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse
 from pydantic import BaseModel
 from langchain_core.messages import HumanMessage, AIMessage, BaseMessage
 
@@ -137,6 +137,17 @@ async def auth_callback(request: Request):
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erro ao gerar token: {e}")
+
+
+@app.get("/auth/rdstation/authorize")
+async def rdstation_authorize():
+    """Inicia o fluxo OAuth da RD Station — redireciona para a página de autorização."""
+    from urllib.parse import urlencode
+    params = urlencode({
+        "client_id":    _RDS_CLIENT_ID,
+        "redirect_uri": _RDS_REDIRECT_URI,
+    })
+    return RedirectResponse(f"https://api.rd.services/auth/dialog?{params}")
 
 
 @app.get("/auth/rdstation/callback")
