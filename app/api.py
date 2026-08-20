@@ -183,6 +183,13 @@ async def whatsapp_webhook(request: Request):
     if not phone:
         return {"status": "ignored"}
 
+    # comando de reset de sessão
+    if text.strip().lower() == "reiniciar_agora":
+        db.clear_wa_session(phone)
+        whatsapp.send_text(phone, "Conversa reiniciada. Olá! Tudo bem? Aqui é o Vagner, da OutletSIM 👋 Antes da gente continuar, qual seu nome?")
+        db.save_wa_session(phone, [{"__step": "welcome"}])
+        return {"status": "reset"}
+
     # gate: verifica atendimento humano na RD Station
     if rdstation.is_human_takeover(phone):
         return {"status": "human_takeover"}
