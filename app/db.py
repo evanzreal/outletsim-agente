@@ -88,6 +88,35 @@ def search_catalog(query: str, limit: int = 15) -> list[dict]:
             return [dict(r) for r in cur.fetchall()]
 
 
+# ── Sessões WhatsApp ────────────────────────────────────────────────────────
+
+def get_wa_session(phone: str) -> list[dict]:
+    with _conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT history FROM wa_sessions WHERE phone = %s", (phone,))
+            row = cur.fetchone()
+            return row[0] if row else []
+
+
+def save_wa_session(phone: str, history: list[dict]) -> None:
+    with _conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO wa_sessions (phone, history, updated_at)
+                VALUES (%s, %s::jsonb, NOW())
+                ON CONFLICT (phone) DO UPDATE
+                  SET history = EXCLUDED.history, updated_at = NOW()
+            """, (phone, psycopg2.extras.Json(history)))
+
+
+def clear_wa_session(phone: str) -> None:
+    with _conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("UPDATE wa_sessions SET history = '[]'::jsonb WHERE phone = %s", (phone,))
+
+
+# ── Catálogo de produtos ────────────────────────────────────────────────────
+
 def get_catalog_categories() -> list[str]:
     with _conn() as conn:
         with conn.cursor() as cur:

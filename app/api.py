@@ -13,7 +13,8 @@ from langchain_core.messages import HumanMessage, AIMessage, BaseMessage
 from app.agent import chat
 from app.tray import client as tray_client
 from app.admin import meta_agent as admin_agent
-from app import rdstation
+from app import rdstation, whatsapp, db
+from langchain_core.messages import HumanMessage, AIMessage
 
 _RDS_CLIENT_ID     = os.getenv("RDSTATION_CLIENT_ID", "")
 _RDS_CLIENT_SECRET = os.getenv("RDSTATION_CLIENT_SECRET", "")
@@ -149,6 +150,66 @@ async def auth_callback(request: Request):
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erro ao gerar token: {e}")
+
+
+@app.post("/webhook/whatsapp")
+async def whatsapp_webhook(request: Request):
+    """Recebe mensagens do WhatsApp via UazAPI e responde com a Isabela."""
+    try:
+        payload = await request.json()
+    except Exception:
+        return {"status": "ignored"}
+
+    # ignora mensagens enviadas pela própria instância
+    if payload.get("fromMe") or payload.get("from_me"):
+        return {"status": "ignored"}
+
+    msg_type = payload.get("messageType", "")
+    if msg_type not in ("conversation", "extendedTextMessage", "ExtendedTextMessage"):
+        return {"status": "ignored"}
+
+    text = (
+        payload.get("text")
+        or payload.get("body")
+        or (payload.get("content") or {}).get("text", "")
+    ).strip()
+
+    if not text:
+        return {"status": "ignored"}
+
+    sender = payload.get("sender", "")
+    phone  = sender.replace("@s.whatsapp.net", "").replace("@c.us", "")
+
+    if not phone:
+        return {"status": "ignored"}
+
+    # gate: verifica atendimento humano
+    if rdstation.is_human_takeover(phone):
+        return {"status": "human_takeover"}
+
+    # carrega histórico da sessão
+    raw_history = db.get_wa_session(phone)
+    history = []
+    for m in raw_history:
+        if m["role"] == "user":
+            history.append(HumanMessage(content=m["content"]))
+        elif m["role"] == "assistant":
+            history.append(AIMessage(content=m["content"]))
+
+    # chama o agente
+    response = chat(text, history)
+
+    # salva sessão atualizada (mantém últimas 20 trocas)
+    updated = raw_history + [
+        {"role": "user",      "content": text},
+        {"role": "assistant", "content": response},
+    ]
+    db.save_wa_session(phone, updated[-40:])
+
+    # envia resposta no WhatsApp
+    whatsapp.send_text(phone, response)
+
+    return {"status": "ok"}
 
 
 @app.get("/auth/rdstation/authorize")
