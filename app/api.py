@@ -1,4 +1,5 @@
 import os
+import time
 import secrets
 import httpx
 from contextlib import asynccontextmanager
@@ -201,6 +202,11 @@ async def whatsapp_webhook(request: Request):
 
     if msg.get("fromMe", True):
         return {"status": "ignored"}
+
+    # ignora replays: mensagens com mais de 3 minutos são descartadas
+    msg_ts = msg.get("timestamp") or msg.get("messageTimestamp") or 0
+    if msg_ts and (time.time() - int(msg_ts)) > 180:
+        return {"status": "ignored_old"}
 
     msg_type = msg.get("messageType", msg.get("type", ""))
     if msg_type.lower() not in ("conversation", "extendedtextmessage", "text"):
