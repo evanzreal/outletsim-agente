@@ -105,7 +105,7 @@ def handle(phone: str, text: str) -> str | None:
 
 def is_new_contact(phone: str) -> bool:
     session = db.get_wa_session(phone)
-    return not session or _get_step(session) == STEP_WELCOME
+    return not session  # só dispara welcome pra sessão vazia; WELCOME step é tratado por handle()
 
 
 def send_welcome(phone: str) -> None:
